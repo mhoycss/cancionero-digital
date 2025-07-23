@@ -1,70 +1,134 @@
-# Getting Started with Create React App
+# Cancionero Digital Interactivo
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Un cancionero digital moderno construido con React y Firebase, diseñado para bandas y músicos. Permite gestionar un repertorio de canciones compartido, crear listas de actuaciones (setlists) personales y públicas, y transportar acordes en tiempo real.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## ✨ Características Principales
 
-### `npm start`
+* **Repertorio Centralizado:** Todas las canciones de la banda en un solo lugar.
+* **Transposición de Acordes:** Cambiá la tonalidad de cualquier canción al instante.
+* **Visualización Clara:** Muestra los acordes sobre la letra, al estilo de las mejores páginas de cifrados.
+* **Listas de Actuación (Setlists):**
+    * **Públicas:** Creadas por administradores para toda la banda, con tonalidades definidas para cada evento.
+    * **Privadas:** Cada miembro puede crear sus propias listas personales.
+* **Sistema de Roles:**
+    * **Admin:** Control total sobre el repertorio y la gestión de usuarios.
+    * **Invitado:** Puede ver todo, transportar canciones y crear sus listas privadas.
+* **Interfaz Personalizable:** Controles para ajustar el tamaño de la letra y cambiar entre tema claro y oscuro.
+* **Seguro:** Sistema de autenticación por invitación para mantener tu repertorio privado.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+---
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## 🚀 Puesta en Marcha
 
-### `npm test`
+Para instalar y correr este proyecto en tu propia máquina, seguí estos pasos.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### **Parte 1: Configuración de Firebase**
 
-### `npm run build`
+1.  **Creá un Proyecto en Firebase:** Andá a la [Consola de Firebase](https://console.firebase.google.com/) y creá un nuevo proyecto.
+2.  **Activá los Servicios:**
+    * **Authentication:** Habilitá el proveedor **"Correo electrónico/Contraseña"**.
+    * **Firestore Database:** Creá una base de datos en **modo de producción**.
+3.  **Creá tu Usuario Admin:**
+    * En **Authentication**, creá tu primer usuario manualmente (ej: `tu-email@gmail.com`).
+    * Copiá el **User UID** de tu nuevo usuario.
+    * En **Firestore**, creá la siguiente estructura:
+        * Colección `artifacts` -> Documento `[tu-project-id]` -> Colección `users` -> Documento `[tu-user-uid]`
+    * En el documento de tu usuario, añadí dos campos: `email` (string) con tu email y `role` (string) con el valor `admin`.
+4.  **Establecé las Reglas de Seguridad:** En la pestaña **Reglas** de Firestore, pegá el siguiente contenido:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+    ```
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        
+        match /artifacts/{appId}/users/{userId} {
+          allow read: if request.auth != null;
+          allow create: if request.auth.uid == userId;
+          allow update: if request.auth != null && get(/databases/$(database)/documents/artifacts/$(appId)/users/$(request.auth.uid)).data.role == 'admin';
+        }
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+        match /artifacts/{appId}/users/{userId}/setlists/{setlistId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+        match /artifacts/{appId}/songs/{songId} {
+          allow read: if request.auth != null;
+          allow write: if request.auth != null && get(/databases/$(database)/documents/artifacts/$(appId)/users/$(request.auth.uid)).data.role == 'admin';
+        }
 
-### `npm run eject`
+        match /artifacts/{appId}/public_setlists/{setlistId} {
+          allow read: if request.auth != null;
+          allow write: if request.auth != null && get(/databases/$(database)/documents/artifacts/$(appId)/users/$(request.auth.uid)).data.role == 'admin';
+        }
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+        match /artifacts/{appId}/invitations/{invitationId} {
+          allow read: if request.auth != null;
+          allow create, delete: if request.auth != null && get(/databases/$(database)/documents/artifacts/$(appId)/users/$(request.auth.uid)).data.role == 'admin';
+        }
+      }
+    }
+    ```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### **Parte 2: Instalación Local**
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+1.  **Cloná el Repositorio:**
+    ```bash
+    git clone [https://github.com/tu-usuario/tu-repositorio.git](https://github.com/tu-usuario/tu-repositorio.git)
+    cd cancionero-digital
+    ```
+2.  **Creá tu Archivo de Entorno:**
+    * Creá un archivo llamado `.env` en la raíz del proyecto.
+    * Andá a la **Configuración de tu proyecto en Firebase**, registrá una nueva aplicación web y copiá las credenciales.
+    * Pegá las credenciales en tu archivo `.env` con el siguiente formato:
+        ```
+        REACT_APP_API_KEY="AIza..."
+        REACT_APP_AUTH_DOMAIN="tu-proyecto-id.firebaseapp.com"
+        REACT_APP_PROJECT_ID="tu-proyecto-id"
+        REACT_APP_STORAGE_BUCKET="tu-proyecto-id.appspot.com"
+        REACT_APP_MESSAGING_SENDER_ID="..."
+        REACT_APP_APP_ID="1:..."
+        ```
+3.  **Instalá las Dependencias:**
+    ```bash
+    npm install firebase lucide-react
+    npm install -D tailwindcss postcss autoprefixer
+    ```
+4.  **Configurá Tailwind CSS:**
+    * Ejecutá el comando para crear los archivos de configuración:
+        ```bash
+        npx tailwindcss init -p
+        ```
+    * Reemplazá el contenido de `tailwind.config.js` con esto:
+        ```javascript
+        /** @type {import('tailwindcss').Config} */
+        module.exports = {
+          darkMode: 'class',
+          content: ["./src/**/*.{js,jsx,ts,tsx}"],
+          theme: { extend: {} },
+          plugins: [],
+        }
+        ```
+    * Reemplazá el contenido de `src/index.css` con esto:
+        ```css
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+        ```
+5.  **Añadí el Código Fuente:** Reemplazá el contenido de `src/App.js` con el código proporcionado en la guía de instalación.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+6.  **Ejecutá la Aplicación:**
+    ```bash
+    npm start
+    ```
+    La aplicación se abrirá en `http://localhost:3000`. ¡Iniciá sesión con el usuario admin que creaste!
 
-## Learn More
+---
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 🛠️ Stack Tecnológico
 
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+* **Frontend:** [React](https://reactjs.org/)
+* **Backend & Base de Datos:** [Firebase](https://firebase.google.com/) (Authentication & Firestore)
+* **Estilos:** [Tailwind CSS](https://tailwindcss.com/)
+* **Iconos:** [Lucide React](https://lucide.dev/)
