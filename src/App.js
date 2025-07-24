@@ -7,7 +7,7 @@ import {
     signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, setDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -52,11 +52,25 @@ const transposeSongContent = (content, amount) => {
 
 const getOriginalKey = (content) => {
     if (!content) return 'C';
-    const match = content.match(/\[([^\]]+)\]/);
-    if (!match) return 'C';
-    const firstChordRoot = match[1].match(/([A-G][#b]?)/);
-    return firstChordRoot ? firstChordRoot[1] : 'C';
+    // Prioridad 1: Buscar la directiva {key: ...} o {k: ...}
+    const keyDirectiveMatch = content.match(/{key:\s*([^}]+)}/i) || content.match(/{k:\s*([^}]+)}/i);
+    if (keyDirectiveMatch && keyDirectiveMatch[1]) {
+        return keyDirectiveMatch[1].trim();
+    }
+
+    // Prioridad 2: Buscar el primer acorde en la canción
+    const firstChordMatch = content.match(/\[([^\]]+)\]/);
+    if (firstChordMatch && firstChordMatch[1]) {
+        const firstChordRootMatch = firstChordMatch[1].match(/([A-G][#b]?)/);
+        if (firstChordRootMatch && firstChordRootMatch[1]) {
+            return firstChordRootMatch[1];
+        }
+    }
+    
+    // Si no se encuentra nada, devolver 'C' como valor por defecto
+    return 'C';
 };
+
 
 // --- COMPONENTE DE AUTENTICACIÓN ---
 function AuthPage({ auth, db }) {
