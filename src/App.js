@@ -376,15 +376,14 @@ export default function App() {
 
             if (!hasChords) return <div key={i} className="mb-3"><p className="font-mono font-bold text-gray-500 dark:text-gray-400">{line}</p></div>;
             if (!hasLyrics && hasChords) {
-                // Mejor separación entre acordes, considerando el largo de cada acorde
+                // Menor separación entre acordes para líneas solo de acordes (ej: intro)
                 const chords = line.match(/\[.*?\]/g) || [];
-                // Separador: mínimo 4 espacios, más 1 espacio por cada caracter extra sobre 2
                 let chordsText = '';
+                const pad = 4; // separador reducido a 4 espacios
                 chords.forEach((c, idx) => {
                     const chordStr = c.slice(1, -1);
                     chordsText += chordStr;
                     if (idx < chords.length - 1) {
-                        const pad = Math.max(4, 2 + chordStr.length);
                         chordsText += ' '.repeat(pad);
                     }
                 });
@@ -392,10 +391,17 @@ export default function App() {
             }
             let chordsDisplay = '', lyricsDisplay = '';
             const parts = line.split(/(\[[^\]]+\])/g).filter(Boolean);
-            parts.forEach(part => {
+            parts.forEach((part, idx) => {
                 if (part.startsWith('[') && part.endsWith(']')) {
                     const chordText = part.slice(1, -1);
-                    const padding = Math.max(0, lyricsDisplay.length - chordsDisplay.length);
+                    // Si el acorde está en un espacio vacío o al final, agregar padding extra
+                    const prevLyric = idx > 0 ? parts[idx - 1] : '';
+                    const nextLyric = idx < parts.length - 1 ? parts[idx + 1] : '';
+                    let padding = Math.max(0, lyricsDisplay.length - chordsDisplay.length);
+                    // Si el acorde está al final o rodeado de espacios vacíos, agregar menos espacio
+                    if ((nextLyric === '' || nextLyric === undefined) || (/^\s*$/.test(prevLyric) && /^\s*$/.test(nextLyric))) {
+                        padding += 2; // padding extra reducido para acordes "sueltos"
+                    }
                     chordsDisplay += ' '.repeat(padding) + chordText;
                 } else {
                     lyricsDisplay += part;
