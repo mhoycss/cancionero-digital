@@ -376,9 +376,19 @@ export default function App() {
 
             if (!hasChords) return <div key={i} className="mb-3"><p className="font-mono font-bold text-gray-500 dark:text-gray-400">{line}</p></div>;
             if (!hasLyrics && hasChords) {
+                // Mejor separación entre acordes, considerando el largo de cada acorde
                 const chords = line.match(/\[.*?\]/g) || [];
-                const chordsText = chords.map(c => c.slice(1, -1)).join('   ');
-                return <div key={i} className="mb-3"><p className="font-mono font-bold text-cyan-600 dark:text-cyan-400 whitespace-pre-wrap leading-tight">{chordsText}</p></div>;
+                // Separador: mínimo 4 espacios, más 1 espacio por cada caracter extra sobre 2
+                let chordsText = '';
+                chords.forEach((c, idx) => {
+                    const chordStr = c.slice(1, -1);
+                    chordsText += chordStr;
+                    if (idx < chords.length - 1) {
+                        const pad = Math.max(4, 2 + chordStr.length);
+                        chordsText += ' '.repeat(pad);
+                    }
+                });
+                return <div key={i} className="mb-3"><p className="font-mono font-bold text-cyan-600 dark:text-cyan-400 whitespace-pre leading-tight">{chordsText}</p></div>;
             }
             let chordsDisplay = '', lyricsDisplay = '';
             const parts = line.split(/(\[[^\]]+\])/g).filter(Boolean);
@@ -393,7 +403,7 @@ export default function App() {
             });
             return (
                 <div key={i} className="mb-3">
-                    <p className="font-mono font-bold text-cyan-600 dark:text-cyan-400 whitespace-pre-wrap leading-tight">{chordsDisplay}</p>
+                    <p className="font-mono font-bold text-cyan-600 dark:text-cyan-400 whitespace-pre leading-tight">{chordsDisplay}</p>
                     <p className="font-mono whitespace-pre-wrap leading-tight">{lyricsDisplay}</p>
                 </div>
             );
