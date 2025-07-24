@@ -7,8 +7,8 @@ import {
     signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
-import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users } from 'lucide-react';
+import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, setDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, KeyRound, ShieldCheck, UserCog, Users } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
@@ -70,7 +70,7 @@ function AuthPage({ auth, db }) {
         setError('');
         try {
             const invitationsRef = collection(db, `/artifacts/${appId}/invitations`);
-            const q = query(invitationsRef, where("code", "==", invitationCode));
+            const q = query(invitationsRef, where("code", "==", invitationCode), where("status", "==", "active"));
             const querySnapshot = await getDocs(q);
             if (querySnapshot.empty) {
                 setError("Código de invitación inválido o ya utilizado.");
@@ -80,9 +80,16 @@ function AuthPage({ auth, db }) {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
             const batch = writeBatch(db);
+
+            // Crear el documento del usuario
             const userDocRef = doc(db, `/artifacts/${appId}/users`, user.uid);
             batch.set(userDocRef, { email: user.email, role: 'guest' });
-            querySnapshot.forEach(invitationDoc => batch.delete(invitationDoc.ref));
+
+            // Marcar la invitación como usada en lugar de borrarla
+            querySnapshot.forEach(invitationDoc => {
+                batch.update(invitationDoc.ref, { status: 'used', usedBy: user.uid, usedAt: new Date() });
+            });
+
             await batch.commit();
 
         } catch (err) {
@@ -205,7 +212,7 @@ export default function App() {
     const handleGenerateInvitation = async () => {
         if (!db) return;
         const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-        await addDoc(collection(db, `/artifacts/${appId}/invitations`), { code: code, createdAt: new Date() });
+        await addDoc(collection(db, `/artifacts/${appId}/invitations`), { code: code, createdAt: new Date(), status: 'active' });
     };
     const handleDeleteInvitation = async (invitationId) => {
         if (!db) return;
