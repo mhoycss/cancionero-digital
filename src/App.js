@@ -33,6 +33,21 @@ const getNoteIndex = (note) => {
 
 const transposeChord = (chord, amount) => {
     if (!chord) return '';
+    // Detectar slash chord: Ejemplo G/B, D/F#, etc.
+    const slashMatch = chord.match(/^([A-G][#b]?)([^/]*)\/([A-G][#b]?)(.*)$/);
+    if (slashMatch) {
+        // slashMatch[1]: raíz, slashMatch[2]: sufijo raíz, slashMatch[3]: bajo, slashMatch[4]: sufijo bajo
+        const root = slashMatch[1];
+        const rootSuffix = slashMatch[2] || '';
+        const bass = slashMatch[3];
+        const bassSuffix = slashMatch[4] || '';
+        const rootIndex = getNoteIndex(root);
+        const bassIndex = getNoteIndex(bass);
+        const newRoot = rootIndex !== -1 ? notesSharp[(rootIndex + amount + 12) % 12] : root;
+        const newBass = bassIndex !== -1 ? notesSharp[(bassIndex + amount + 12) % 12] : bass;
+        return `${newRoot}${rootSuffix}/${newBass}${bassSuffix}`;
+    }
+    // Si no es slash chord, transponer normalmente
     const match = chord.match(/([A-G][#b]?)(.*)/);
     if (!match) return chord;
     const root = match[1];
