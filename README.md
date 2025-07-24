@@ -116,9 +116,8 @@ Para instalar y correr este proyecto en tu propia máquina, seguí estos pasos.
         @tailwind components;
         @tailwind utilities;
         ```
-5.  **Añadí el Código Fuente:** Reemplazá el contenido de `src/App.js` con el código proporcionado en la guía de instalación.
 
-6.  **Ejecutá la Aplicación:**
+5.  **Ejecutá la Aplicación:**
     ```bash
     npm start
     ```
