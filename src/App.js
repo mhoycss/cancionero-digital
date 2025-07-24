@@ -8,7 +8,7 @@ import {
     signOut
 } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, setDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
-import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, KeyRound, ShieldCheck, UserCog, Users } from 'lucide-react';
+import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
