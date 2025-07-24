@@ -7,7 +7,7 @@ import {
     signInWithEmailAndPassword,
     signOut
 } from 'firebase/auth';
-import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, setDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -80,16 +80,14 @@ function AuthPage({ auth, db }) {
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
             const batch = writeBatch(db);
-
-            // Crear el documento del usuario
+            
             const userDocRef = doc(db, `/artifacts/${appId}/users`, user.uid);
             batch.set(userDocRef, { email: user.email, role: 'guest' });
-
-            // Marcar la invitación como usada en lugar de borrarla
+            
             querySnapshot.forEach(invitationDoc => {
                 batch.update(invitationDoc.ref, { status: 'used', usedBy: user.uid, usedAt: new Date() });
             });
-
+            
             await batch.commit();
 
         } catch (err) {
