@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
@@ -8,7 +8,7 @@ import {
     signOut
 } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
-import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users } from 'lucide-react';
+import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users} from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
@@ -183,6 +183,7 @@ export default function App() {
     const [editedContent, setEditedContent] = useState('');
     const [theme, setTheme] = useState('dark');
     const [fontSizeIndex, setFontSizeIndex] = useState(2);
+    const [bookModeEnabled, setBookModeEnabled] = useState(false);
     const fontSizes = ['text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl', 'text-3xl'];
 
     useEffect(() => {
@@ -342,24 +343,123 @@ export default function App() {
             await updateDoc(doc(db, path), { songs: updatedSongs });
         }
     };
-    const handleTransposeStep = (step) => {
+    const handleTransposeStep = useCallback((step) => {
         if (!selectedSong) return;
         const newOffset = transposeOffset + step;
         setTransposeOffset(newOffset);
         setTargetKeyInput(transposeChord(getOriginalKey(selectedSong.content), newOffset));
-    };
-    const handleApplyTargetKey = () => {
+    }, [selectedSong, transposeOffset]);
+    
+    const handleApplyTargetKey = useCallback(() => {
         if (!selectedSong || !targetKeyInput) return;
         const originalKeyIndex = getNoteIndex(getOriginalKey(selectedSong.content));
         const targetKeyIndex = getNoteIndex(targetKeyInput);
         if (originalKeyIndex !== -1 && targetKeyIndex !== -1) setTransposeOffset(targetKeyIndex - originalKeyIndex);
-    };
-    const changeFontSize = (direction) => {
+    }, [selectedSong, targetKeyInput]);
+    
+    const changeFontSize = useCallback((direction) => {
         const newIndex = fontSizeIndex + direction;
         if (newIndex >= 0 && newIndex < fontSizes.length) {
             setFontSizeIndex(newIndex);
         }
-    };
+    }, [fontSizeIndex, fontSizes.length]);
+
+    // Auto-scroll state and functions
+    const [isAutoScrolling, setIsAutoScrolling] = useState(false);
+    const [scrollSpeed, setScrollSpeed] = useState(1); // pixels per interval
+    const autoScrollRef = React.useRef(null);
+
+    const startAutoScroll = useCallback(() => {
+        if (!isAutoScrolling) {
+            setIsAutoScrolling(true);
+            autoScrollRef.current = setInterval(() => {
+                window.scrollBy(0, scrollSpeed);
+            }, 50);
+        }
+    }, [isAutoScrolling, scrollSpeed]);
+
+    const stopAutoScroll = useCallback(() => {
+        if (isAutoScrolling && autoScrollRef.current) {
+            clearInterval(autoScrollRef.current);
+            setIsAutoScrolling(false);
+        }
+    }, [isAutoScrolling]);
+
+    const changeScrollSpeed = useCallback((amount) => {
+        setScrollSpeed(prev => Math.max(0.5, Math.min(5, prev + amount)));
+    }, []);
+
+    // Cleanup auto-scroll interval on component unmount
+    useEffect(() => {
+        return () => {
+            if (autoScrollRef.current) {
+                clearInterval(autoScrollRef.current);
+            }
+        };
+    }, []);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Only handle keyboard shortcuts when a song is selected and we're not editing
+            if (!selectedSong || isEditing) return;
+
+            switch (e.key) {
+                case 'b': 
+                    // Toggle book mode
+                    setBookModeEnabled(prev => !prev);
+                    break;
+                case '+':
+                case '=':
+                    // Transpose up
+                    handleTransposeStep(1);
+                    break;
+                case '-':
+                    // Transpose down
+                    handleTransposeStep(-1);
+                    break;
+                case 's':
+                    // Toggle auto-scroll
+                    if (isAutoScrolling) stopAutoScroll();
+                    else startAutoScroll();
+                    break;
+                case 'ArrowUp':
+                    if (isAutoScrolling) {
+                        // Decrease scroll speed
+                        changeScrollSpeed(-0.5);
+                    } else {
+                        // Zoom in
+                        changeFontSize(1);
+                    }
+                    e.preventDefault();
+                    break;
+                case 'ArrowDown':
+                    if (isAutoScrolling) {
+                        // Increase scroll speed
+                        changeScrollSpeed(0.5);
+                    } else {
+                        // Zoom out
+                        changeFontSize(-1);
+                    }
+                    e.preventDefault();
+                    break;
+                default:
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [
+        selectedSong, 
+        isEditing, 
+        isAutoScrolling, 
+        handleTransposeStep,
+        changeFontSize,
+        startAutoScroll,
+        stopAutoScroll,
+        changeScrollSpeed
+    ]);
 
     const transposedContent = useMemo(() => selectedSong ? transposeSongContent(selectedSong.content, transposeOffset) : '', [selectedSong, transposeOffset]);
 
@@ -368,7 +468,7 @@ export default function App() {
 
     const renderAsWebsiteStyle = (content) => {
         if (!content) return null;
-        return content.split('\n').map((line, i) => {
+        const lines = content.split('\n').map((line, i) => {
             if (line.trim() === '') return <div key={i} className="h-4" />;
             const lyricContent = line.replace(/\[.*?\]/g, '').replace(/[-–—\s]/g, '');
             const hasLyrics = lyricContent.trim().length > 0;
@@ -414,10 +514,80 @@ export default function App() {
                 </div>
             );
         });
+        
+        // Si el modo libro está activado, dividir el contenido en dos columnas
+        if (bookModeEnabled && lines.length > 10) {
+            const midPoint = Math.ceil(lines.length / 2);
+            const leftColumn = lines.slice(0, midPoint);
+            const rightColumn = lines.slice(midPoint);
+            
+            return (
+                <>
+                    <div className="w-1/2">{leftColumn}</div>
+                    <div className="w-1/2">{rightColumn}</div>
+                </>
+            );
+        }
+        
+        // Modo normal - una columna
+        return <div className="single-column">{lines}</div>;
     };
+
+    // CSS para el modo libro y scroll
+    const appStyles = `
+        .book-mode {
+            display: flex;
+            flex-direction: row;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            max-height: 70vh;
+            overflow-y: hidden !important;
+        }
+        
+        .book-mode > div {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 1rem;
+            margin-bottom: 2rem;
+            height: 70vh;
+        }
+
+        .single-column {
+            width: 100%;
+        }
+        
+        /* Resaltar controles activos */
+        .active-control {
+            background-color: #0891b2;
+            color: white;
+        }
+        
+        /* Estilo para los atajos de teclado */
+        kbd {
+            font-family: monospace;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 1px 3px;
+            margin: 0 2px;
+        }
+
+        @media (max-width: 768px) {
+            .book-mode {
+                flex-direction: column;
+                max-height: none;
+                overflow-y: visible !important;
+            }
+            
+            .book-mode > div {
+                width: 100% !important;
+                height: auto;
+            }
+        }
+    `;
 
     return (
         <div className={`${theme}`}>
+        <style>{appStyles}</style>
         <div className="flex flex-col md:flex-row h-screen bg-white dark:bg-gray-800 text-gray-800 dark:text-white font-sans">
             <aside className="w-full md:w-1/3 lg:w-1/4 p-4 bg-gray-100 dark:bg-gray-900 overflow-y-auto flex flex-col space-y-6">
                 <h1 className="text-2xl font-bold text-cyan-600 dark:text-cyan-400 text-center">Cancionero Digital</h1>
@@ -519,15 +689,60 @@ export default function App() {
                            <div><h2 className="text-4xl font-bold text-cyan-600 dark:text-cyan-400">{selectedSong.title}</h2><p className="text-xl text-gray-500 dark:text-gray-300">{selectedSong.artist}</p></div>
                            <div className="flex items-center flex-wrap gap-4 mt-4 sm:mt-0">
                                <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-900 p-2 rounded-lg">
-                                   <button onClick={() => changeFontSize(-1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"><ZoomOut size={18}/></button>
-                                   <button onClick={() => changeFontSize(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"><ZoomIn size={18}/></button>
+                                   <button onClick={() => changeFontSize(-1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600" title="Reducir tamaño (tecla ↓)"><ZoomOut size={18}/></button>
+                                   <button onClick={() => changeFontSize(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600" title="Aumentar tamaño (tecla ↑)"><ZoomIn size={18}/></button>
                                </div>
-                               <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-900 p-2 rounded-lg"><span className="text-lg font-semibold">Tonalidad:</span><button onClick={() => handleTransposeStep(-1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold">-1</button><input type="text" value={targetKeyInput} onChange={(e) => setTargetKeyInput(e.target.value.toUpperCase())} onBlur={handleApplyTargetKey} className="w-16 p-2 text-center rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-bold text-xl focus:outline-none focus:ring-2 focus:ring-cyan-500"/><button onClick={() => handleTransposeStep(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold">+1</button></div>
+                               <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-900 p-2 rounded-lg"><span className="text-lg font-semibold">Tono:</span><button onClick={() => handleTransposeStep(-1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold" title="Bajar tono (tecla -)">-1</button><input type="text" value={targetKeyInput} onChange={(e) => setTargetKeyInput(e.target.value.toUpperCase())} onBlur={handleApplyTargetKey} className="w-16 p-2 text-center rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-bold text-xl focus:outline-none focus:ring-2 focus:ring-cyan-500"/><button onClick={() => handleTransposeStep(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold" title="Subir tono (tecla +)">+1</button></div>
+                               
+                               {/* Control Auto-Scroll */}
+                               <div className={`flex items-center gap-2 p-2 rounded-lg ${isAutoScrolling ? 'bg-cyan-600 text-white' : 'bg-gray-100 dark:bg-gray-900'}`}>
+                                   <button 
+                                       onClick={isAutoScrolling ? stopAutoScroll : startAutoScroll}
+                                       className="flex items-center gap-1 p-1 rounded" 
+                                       title="Auto-scroll (tecla S)">
+                                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                           <polyline points="7 13 12 18 17 13"></polyline>
+                                           <polyline points="7 6 12 11 17 6"></polyline>
+                                       </svg>
+                                       <span className="text-sm">Auto</span>
+                                   </button>
+                                   {isAutoScrolling && (
+                                       <>
+                                           <button onClick={() => changeScrollSpeed(-0.5)} className="p-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más lento (tecla ↑)">-</button>
+                                           <span className="text-sm">{scrollSpeed.toFixed(1)}x</span>
+                                           <button onClick={() => changeScrollSpeed(0.5)} className="p-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más rápido (tecla ↓)">+</button>
+                                       </>
+                                   )}
+                               </div>
+                               
+                               {/* Modo Libro */}
+                               <button 
+                                   onClick={() => setBookModeEnabled(!bookModeEnabled)} 
+                                   className={`${bookModeEnabled ? 'bg-cyan-600 text-white' : 'bg-gray-200 dark:bg-gray-700'} p-2 rounded-lg flex items-center`}
+                                   title="Modo Libro - 2 columnas (tecla B)"
+                               >
+                                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                       <rect x="3" y="3" width="7" height="18"></rect>
+                                       <rect x="14" y="3" width="7" height="18"></rect>
+                                   </svg>
+                               </button>
                                {user.role === 'admin' && <button onClick={handleStartEdit} className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-lg font-bold flex items-center"><Pencil size={18}/></button>}
                                <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="bg-gray-200 dark:bg-gray-700 p-3 rounded-lg"><span className="dark:hidden"><Sun size={18}/></span><span className="hidden dark:inline"><Moon size={18}/></span></button>
                            </div>
                        </div>
-                       <div className={`${fontSizes[fontSizeIndex]} leading-relaxed mb-8`}>{renderAsWebsiteStyle(transposedContent)}</div>
+                       <div className={`${fontSizes[fontSizeIndex]} leading-relaxed mb-8 ${bookModeEnabled ? 'book-mode' : 'single-column'}`}>{renderAsWebsiteStyle(transposedContent)}</div>
+
+                       <div className="mb-6 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-sm">
+                           <h4 className="font-bold mb-2">Atajos de Teclado:</h4>
+                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                               <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">B</kbd> - Modo Libro (2 columnas)</div>
+                               <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">S</kbd> - Iniciar/Parar Auto-scroll</div>
+                               <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">+</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">-</kbd> - Cambiar Tono</div>
+                               <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↑</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↓</kbd> - Cambiar tamaño</div>
+                               <div>Con Auto-scroll: <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↑</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↓</kbd> - Velocidad</div>
+                           </div>
+                       </div>
+
                        <div className="mb-8"><h3 className="text-xl font-semibold mb-2 flex items-center"><LinkIcon className="mr-2" size={20}/> Notas y Enlaces</h3><textarea value={songNotes} onChange={(e) => setSongNotes(e.target.value)} placeholder="Añade aquí el link de la versión que tocan, arreglos, etc." rows="4" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500"></textarea><button onClick={handleUpdateSongNotes} className="mt-2 bg-blue-500 hover:bg-blue-600 text-white p-2 rounded font-bold flex items-center"><Save className="mr-2" size={18} /> Guardar Notas</button></div>
                        <div className="mb-8"><h3 className="text-xl font-semibold mb-2">Añadir a una lista:</h3><div className="flex flex-wrap gap-2">{privateSetlists.map(setlist => (<button key={setlist.id} onClick={() => handleAddSongToSetlist(setlist.id, 'private')} className="bg-indigo-700 hover:bg-indigo-800 text-white py-1 px-3 rounded-full text-sm">Personal: {setlist.name}</button>))} {user.role === 'admin' && publicSetlists.map(setlist => (<button key={setlist.id} onClick={() => handleAddSongToSetlist(setlist.id, 'public')} className="bg-cyan-700 hover:bg-cyan-800 text-white py-1 px-3 rounded-full text-sm">Banda: {setlist.name}</button>))}</div></div>
                    </div>
