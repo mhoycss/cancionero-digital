@@ -368,25 +368,81 @@ export default function App() {
     const [isAutoScrolling, setIsAutoScrolling] = useState(false);
     const [scrollSpeed, setScrollSpeed] = useState(1); // pixels per interval
     const autoScrollRef = React.useRef(null);
+    const mainContentRef = React.useRef(null); // Referencia al contenedor principal de la canción
+
+    // Acumulador de scroll como ref para mantenerlo entre renders
+    const accumulatedScrollRef = React.useRef(0);
+    // Referencia para el valor actual de scrollSpeed para usarlo en el intervalo
+    const scrollSpeedRef = React.useRef(1);
+    
+    // Mantener sincronizada la referencia con el estado
+    useEffect(() => {
+        scrollSpeedRef.current = scrollSpeed;
+    }, [scrollSpeed]);
 
     const startAutoScroll = useCallback(() => {
-        if (!isAutoScrolling) {
-            setIsAutoScrolling(true);
-            autoScrollRef.current = setInterval(() => {
-                window.scrollBy(0, scrollSpeed);
-            }, 50);
+        // Primero limpiamos cualquier intervalo anterior
+        if (autoScrollRef.current) {
+            clearInterval(autoScrollRef.current);
+            autoScrollRef.current = null;
         }
-    }, [isAutoScrolling, scrollSpeed]);
+        
+        // Iniciamos un nuevo intervalo de auto-scroll
+        setIsAutoScrolling(true);
+        
+        // Reiniciamos el acumulador
+        accumulatedScrollRef.current = 0;
+        
+        // Creamos el nuevo intervalo después de un pequeño delay
+        // para evitar conflictos con el estado
+        setTimeout(() => {
+            autoScrollRef.current = setInterval(() => {
+                if (mainContentRef.current) {
+                    // Acumulamos el valor parcial del scroll usando la referencia actualizada
+                    // Esto permite que los cambios en la velocidad tengan efecto inmediatamente
+                    accumulatedScrollRef.current += scrollSpeedRef.current;
+                    
+                    // Cuando acumulamos al menos 0.1px, hacemos el scroll
+                    if (accumulatedScrollRef.current >= 0.1) {
+                        // Redondeamos para asegurar un movimiento mínimo
+                        const pixelsToMove = Math.max(1, Math.floor(accumulatedScrollRef.current));
+                        mainContentRef.current.scrollTop += pixelsToMove;
+                        accumulatedScrollRef.current -= pixelsToMove; // Guardamos el residuo
+                    }
+                    
+                    // Si llegamos al final, detenemos el auto-scroll
+                    const isAtBottom = 
+                        mainContentRef.current.scrollHeight - mainContentRef.current.scrollTop <=
+                        mainContentRef.current.clientHeight + 5; // 5px de margen
+                        
+                    if (isAtBottom) {
+                        clearInterval(autoScrollRef.current);
+                        autoScrollRef.current = null;
+                        setIsAutoScrolling(false);
+                    }
+                }
+            }, 50);
+        }, 100);
+    }, [setIsAutoScrolling]);
 
     const stopAutoScroll = useCallback(() => {
-        if (isAutoScrolling && autoScrollRef.current) {
+        if (autoScrollRef.current) {
             clearInterval(autoScrollRef.current);
-            setIsAutoScrolling(false);
+            autoScrollRef.current = null;
         }
-    }, [isAutoScrolling]);
+        setIsAutoScrolling(false);
+    }, []);
 
     const changeScrollSpeed = useCallback((amount) => {
-        setScrollSpeed(prev => Math.max(0.5, Math.min(5, prev + amount)));
+        // Ampliamos el rango hacia abajo para permitir velocidades muy lentas
+        // El mínimo es 0.1 para tener un valor visible en la UI, pero aún así
+        // el sistema manejará desplazamientos más pequeños a través de la acumulación
+        setScrollSpeed(prev => {
+            // Calculamos el nuevo valor con precisión
+            const newValue = Math.max(0.1, Math.min(5, prev + amount));
+            // Redondeamos a 2 decimales para la visualización
+            return Math.round(newValue * 100) / 100;
+        });
     }, []);
 
     // Cleanup auto-scroll interval on component unmount
@@ -394,9 +450,24 @@ export default function App() {
         return () => {
             if (autoScrollRef.current) {
                 clearInterval(autoScrollRef.current);
+                autoScrollRef.current = null;
             }
         };
     }, []);
+    
+    // Reset auto-scroll when we change songs
+    useEffect(() => {
+        // Detener el auto-scroll cuando cambiamos de canción
+        if (autoScrollRef.current) {
+            clearInterval(autoScrollRef.current);
+            autoScrollRef.current = null;
+            setIsAutoScrolling(false);
+        }
+        // También asegurémonos de volver al inicio del contenido
+        if (mainContentRef.current) {
+            mainContentRef.current.scrollTop = 0;
+        }
+    }, [selectedSong]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -420,13 +491,17 @@ export default function App() {
                     break;
                 case 's':
                     // Toggle auto-scroll
-                    if (isAutoScrolling) stopAutoScroll();
-                    else startAutoScroll();
+                    if (isAutoScrolling) {
+                        stopAutoScroll();
+                    } else {
+                        startAutoScroll();
+                    }
+                    e.preventDefault();
                     break;
                 case 'ArrowUp':
                     if (isAutoScrolling) {
-                        // Decrease scroll speed
-                        changeScrollSpeed(-0.5);
+                        // Decrease scroll speed (incremento más pequeño)
+                        changeScrollSpeed(-0.1);
                     } else {
                         // Zoom in
                         changeFontSize(1);
@@ -435,8 +510,8 @@ export default function App() {
                     break;
                 case 'ArrowDown':
                     if (isAutoScrolling) {
-                        // Increase scroll speed
-                        changeScrollSpeed(0.5);
+                        // Increase scroll speed (incremento más pequeño)
+                        changeScrollSpeed(0.1);
                     } else {
                         // Zoom out
                         changeFontSize(-1);
@@ -535,6 +610,31 @@ export default function App() {
 
     // CSS para el modo libro y scroll
     const appStyles = `
+        main {
+            height: 100vh; /* Asegurar que el contenedor principal ocupe toda la altura */
+            overflow-y: auto !important;
+            scroll-behavior: smooth;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: 50px; /* Espacio adicional al final para evitar que se corte */
+        }
+        
+        /* Evitar que se oculte el scroll del contenedor principal */
+        main::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        main::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+            border-radius: 5px;
+        }
+        
+        main::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.2);
+            border-radius: 5px;
+        }
+        
         .book-mode {
             display: flex;
             flex-direction: row;
@@ -554,6 +654,7 @@ export default function App() {
 
         .single-column {
             width: 100%;
+            min-height: 30vh;
         }
         
         /* Resaltar controles activos */
@@ -569,6 +670,19 @@ export default function App() {
             border-radius: 3px;
             padding: 1px 3px;
             margin: 0 2px;
+        }
+
+        /* Indicador de auto-scroll */
+        .auto-scrolling-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(8, 145, 178, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            z-index: 100;
         }
 
         @media (max-width: 768px) {
@@ -680,7 +794,7 @@ export default function App() {
                {user.role === 'admin' && <details className="flex-shrink-0"><summary className="cursor-pointer text-lg font-semibold text-cyan-600 dark:text-cyan-400">Añadir Nueva Canción</summary><form onSubmit={handleAddSong} className="space-y-2 mt-2"><input type="text" value={newSongTitle} onChange={e => setNewSongTitle(e.target.value)} placeholder="Título" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/><input type="text" value={newSongArtist} onChange={e => setNewSongArtist(e.target.value)} placeholder="Artista" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/><textarea value={newSongContent} onChange={e => setNewSongContent(e.target.value)} placeholder="Contenido en formato ChordPro..." rows="5" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono"></textarea><button type="submit" className="w-full bg-green-500 hover:bg-green-600 text-white p-2 rounded font-bold">Guardar Canción</button></form></details>}
            </aside>
 
-           <main className="w-full md:w-2/3 lg:w-3/4 p-6 overflow-y-auto">
+           <main className="w-full md:w-2/3 lg:w-3/4 p-6 overflow-y-auto" ref={mainContentRef}>
                {selectedSong ? (isEditing ? (
                    <div><h2 className="text-3xl font-bold text-cyan-600 dark:text-cyan-400 mb-4">Editando Canción</h2><div className="space-y-4"><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Título</label><input type="text" value={editedTitle} onChange={e => setEditedTitle(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/></div><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Artista</label><input type="text" value={editedArtist} onChange={e => setEditedArtist(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/></div><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Contenido (ChordPro)</label><textarea value={editedContent} onChange={e => setEditedContent(e.target.value)} rows="15" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono text-sm"></textarea></div><div className="flex space-x-4"><button onClick={handleSaveChanges} className="bg-green-500 hover:bg-green-600 text-white p-2 rounded font-bold flex items-center"><Save className="mr-2" size={18}/> Guardar Cambios</button><button onClick={handleCancelEdit} className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded font-bold flex items-center"><XCircle className="mr-2" size={18}/> Cancelar</button></div></div></div>
                ) : (
@@ -696,21 +810,47 @@ export default function App() {
                                
                                {/* Control Auto-Scroll */}
                                <div className={`flex items-center gap-2 p-2 rounded-lg ${isAutoScrolling ? 'bg-cyan-600 text-white' : 'bg-gray-100 dark:bg-gray-900'}`}>
-                                   <button 
-                                       onClick={isAutoScrolling ? stopAutoScroll : startAutoScroll}
-                                       className="flex items-center gap-1 p-1 rounded" 
-                                       title="Auto-scroll (tecla S)">
-                                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                           <polyline points="7 13 12 18 17 13"></polyline>
-                                           <polyline points="7 6 12 11 17 6"></polyline>
-                                       </svg>
-                                       <span className="text-sm">Auto</span>
-                                   </button>
-                                   {isAutoScrolling && (
+                                   {!isAutoScrolling ? (
+                                       <button 
+                                           onClick={(e) => {
+                                               e.preventDefault();
+                                               e.stopPropagation();
+                                               startAutoScroll();
+                                           }}
+                                           className="flex items-center gap-1 p-2 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600" 
+                                           title="Iniciar Auto-scroll (tecla S)">
+                                           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                               <polyline points="7 13 12 18 17 13"></polyline>
+                                               <polyline points="7 6 12 11 17 6"></polyline>
+                                           </svg>
+                                           <span className="text-sm">Iniciar</span>
+                                       </button>
+                                   ) : (
                                        <>
-                                           <button onClick={() => changeScrollSpeed(-0.5)} className="p-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más lento (tecla ↑)">-</button>
-                                           <span className="text-sm">{scrollSpeed.toFixed(1)}x</span>
-                                           <button onClick={() => changeScrollSpeed(0.5)} className="p-1 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más rápido (tecla ↓)">+</button>
+                                           <button 
+                                               onClick={(e) => {
+                                                   e.preventDefault();
+                                                   e.stopPropagation();
+                                                   stopAutoScroll();
+                                               }}
+                                               className="flex items-center gap-1 p-2 rounded bg-red-500 hover:bg-red-600 text-white" 
+                                               title="Detener Auto-scroll (tecla S)">
+                                               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                   <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                                               </svg>
+                                               <span className="text-sm">Detener</span>
+                                           </button>
+                                           <button onClick={(e) => {
+                                               e.preventDefault();
+                                               e.stopPropagation();
+                                               changeScrollSpeed(-0.1); // Decrementos más pequeños
+                                           }} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más lento (tecla ↑)">-</button>
+                                           <span className="text-sm font-bold">{scrollSpeed.toFixed(2)}x</span>
+                                           <button onClick={(e) => {
+                                               e.preventDefault();
+                                               e.stopPropagation();
+                                               changeScrollSpeed(0.1); // Incrementos más pequeños
+                                           }} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white" title="Más rápido (tecla ↓)">+</button>
                                        </>
                                    )}
                                </div>
@@ -731,6 +871,29 @@ export default function App() {
                            </div>
                        </div>
                        <div className={`${fontSizes[fontSizeIndex]} leading-relaxed mb-8 ${bookModeEnabled ? 'book-mode' : 'single-column'}`}>{renderAsWebsiteStyle(transposedContent)}</div>
+
+                       {/* Indicador de auto-scroll */}
+                       {isAutoScrolling && (
+                           <div className="auto-scrolling-indicator">
+                               <div className="flex items-center">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-bounce mr-1">
+                                      <polyline points="7 13 12 18 17 13"></polyline>
+                                  </svg>
+                                  Auto-scroll activo - Velocidad: {scrollSpeed.toFixed(2)}x 
+                                  <span className="ml-1 text-xs">(Ajusta con ↑/↓)</span>
+                               </div>
+                               <button 
+                                   onClick={(e) => {
+                                       e.preventDefault();
+                                       e.stopPropagation();
+                                       stopAutoScroll();
+                                   }} 
+                                   className="ml-2 px-2 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded font-bold"
+                               >
+                                   Detener
+                               </button>
+                           </div>
+                       )}
 
                        <div className="mb-6 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-sm">
                            <h4 className="font-bold mb-2">Atajos de Teclado:</h4>
