@@ -540,6 +540,11 @@ export default function App() {
         const handleKeyDown = (e) => {
             // Only handle keyboard shortcuts when a song is selected and we're not editing
             if (!selectedSong || isEditing) return;
+            
+            // No activar atajos si el foco está en un campo de entrada (input, textarea, etc.)
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+                return;
+            }
 
             switch (e.key) {
                 case 'b': 
