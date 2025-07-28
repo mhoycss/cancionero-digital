@@ -8,7 +8,7 @@ import {
     signOut
 } from 'firebase/auth';
 import { getFirestore, collection, doc, addDoc, getDocs, onSnapshot, updateDoc, query, where, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
-import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users} from 'lucide-react';
+import { Plus, Music, ListMusic, Trash2, Save, Link as LinkIcon, Pencil, XCircle, ArrowUp, ArrowDown, Sun, Moon, ZoomIn, ZoomOut, LogOut, UserPlus, UserCog, Users, AlertTriangle} from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
@@ -181,6 +181,9 @@ export default function App() {
     const [editedTitle, setEditedTitle] = useState('');
     const [editedArtist, setEditedArtist] = useState('');
     const [editedContent, setEditedContent] = useState('');
+    const [editedContentNotes, setEditedContentNotes] = useState('');
+    const [editedContentPiano, setEditedContentPiano] = useState('');
+    const [activeContentTab, setActiveContentTab] = useState('main'); // 'main', 'notes', 'piano'
     const [theme, setTheme] = useState('dark');
     const [fontSizeIndex, setFontSizeIndex] = useState(2);
     const [bookModeEnabled, setBookModeEnabled] = useState(false);
@@ -215,7 +218,11 @@ export default function App() {
             return;
         };
         const songsCollectionPath = `/artifacts/${appId}/songs`;
-        const qSongs = query(collection(db, songsCollectionPath));
+        // Consulta modificada para excluir canciones borradas lógicamente
+        const qSongs = query(
+            collection(db, songsCollectionPath), 
+            where("deletedAt", "==", null)
+        );
         const unsubscribeSongs = onSnapshot(qSongs, (snap) => setSongs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
         const privateSetlistsPath = `/artifacts/${appId}/users/${user.uid}/setlists`;
@@ -253,15 +260,54 @@ export default function App() {
     const handleAddSong = async (e) => {
         e.preventDefault();
         if (!newSongTitle || !newSongContent || !db || !user) return;
-        await addDoc(collection(db, `/artifacts/${appId}/songs`), { title: newSongTitle, artist: newSongArtist, content: newSongContent, notes: '' });
+        await addDoc(collection(db, `/artifacts/${appId}/songs`), { 
+            title: newSongTitle, 
+            artist: newSongArtist, 
+            content: newSongContent, 
+            content_notes: '', // Versión simplificada con solo notas y acordes
+            content_piano: '', // Versión específica para piano
+            notes: '',
+            deletedAt: null // Nuevo campo para borrado lógico
+        });
         setNewSongTitle('');
         setNewSongArtist('');
         setNewSongContent('');
     };
-    const handleDeleteSong = async (songId) => {
-        if (!db || !user || !songId) return;
-        await deleteDoc(doc(db, `/artifacts/${appId}/songs/${songId}`));
-        if(selectedSong?.id === songId) { setSelectedSong(null); setIsEditing(false); }
+    // Función para iniciar el proceso de eliminación - muestra el diálogo de confirmación
+    const startDeleteSong = (songId, e) => {
+        // Evitar que el evento se propague (importante para evitar seleccionar la canción al hacer clic en el botón de eliminar)
+        if (e) {
+            e.stopPropagation();
+        }
+        
+        setPendingDeleteSongId(songId);
+        setShowDeleteConfirmation(true);
+    };
+    
+    // Función para cancelar la eliminación
+    const cancelDeleteSong = () => {
+        setPendingDeleteSongId(null);
+        setShowDeleteConfirmation(false);
+    };
+    
+    // Función de eliminación lógica
+    const handleDeleteSong = async () => {
+        if (!db || !user || !pendingDeleteSongId) return;
+        
+        // Borrado lógico - actualizamos el campo deletedAt en lugar de eliminar
+        await updateDoc(doc(db, `/artifacts/${appId}/songs/${pendingDeleteSongId}`), {
+            deletedAt: new Date()
+        });
+        
+        // Si la canción borrada estaba seleccionada, limpiamos la selección
+        if(selectedSong?.id === pendingDeleteSongId) { 
+            setSelectedSong(null); 
+            setIsEditing(false); 
+        }
+        
+        // Limpiamos el estado de confirmación
+        setPendingDeleteSongId(null);
+        setShowDeleteConfirmation(false);
     };
     const handleSelectSong = (song, transposeOverride = null) => {
         const fullSong = songs.find(s => s.id === song.id);
@@ -276,13 +322,26 @@ export default function App() {
     const handleStartEdit = () => {
         if (!selectedSong) return;
         setIsEditing(true);
-        setEditedTitle(selectedSong.title); setEditedArtist(selectedSong.artist); setEditedContent(selectedSong.content);
+        setEditedTitle(selectedSong.title); 
+        setEditedArtist(selectedSong.artist); 
+        setEditedContent(selectedSong.content);
+        // Cargamos los contenidos adicionales si existen, si no, inicializamos con string vacío
+        setEditedContentNotes(selectedSong.content_notes || '');
+        setEditedContentPiano(selectedSong.content_piano || '');
+        // Empezamos siempre en la pestaña principal
+        setActiveContentTab('main');
     };
     const handleCancelEdit = () => setIsEditing(false);
     const handleSaveChanges = async () => {
         if (!selectedSong || !db || !user) return;
         const songDocPath = `/artifacts/${appId}/songs/${selectedSong.id}`;
-        const updatedData = { title: editedTitle, artist: editedArtist, content: editedContent };
+        const updatedData = { 
+            title: editedTitle, 
+            artist: editedArtist, 
+            content: editedContent,
+            content_notes: editedContentNotes,
+            content_piano: editedContentPiano
+        };
         await updateDoc(doc(db, songDocPath), updatedData);
         setSelectedSong(prev => ({...prev, ...updatedData}));
         setIsEditing(false);
@@ -364,6 +423,13 @@ export default function App() {
         }
     }, [fontSizeIndex, fontSizes.length]);
 
+    // Estado para controlar qué versión de la canción se muestra
+    const [displayVersion, setDisplayVersion] = useState('main'); // 'main', 'notes', 'piano'
+    
+    // Estados para confirmación de eliminación
+    const [pendingDeleteSongId, setPendingDeleteSongId] = useState(null);
+    const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+    
     // Auto-scroll state and functions
     const [isAutoScrolling, setIsAutoScrolling] = useState(false);
     const [scrollSpeed, setScrollSpeed] = useState(1); // pixels per interval
@@ -508,6 +574,23 @@ export default function App() {
                     }
                     e.preventDefault();
                     break;
+                    
+                // Teclas para cambiar entre versiones
+                case '1':
+                    if (selectedSong) {
+                        setDisplayVersion('main');
+                    }
+                    break;
+                case '2':
+                    if (selectedSong?.content_notes) {
+                        setDisplayVersion('notes');
+                    }
+                    break;
+                case '3':
+                    if (selectedSong?.content_piano) {
+                        setDisplayVersion('piano');
+                    }
+                    break;
                 case 'ArrowDown':
                     if (isAutoScrolling) {
                         // Increase scroll speed (incremento más pequeño)
@@ -536,7 +619,25 @@ export default function App() {
         changeScrollSpeed
     ]);
 
-    const transposedContent = useMemo(() => selectedSong ? transposeSongContent(selectedSong.content, transposeOffset) : '', [selectedSong, transposeOffset]);
+    // Seleccionar el contenido correcto según la versión activa
+    const selectedContent = useMemo(() => {
+        if (!selectedSong) return '';
+        
+        switch(displayVersion) {
+            case 'notes':
+                return selectedSong.content_notes || '';
+            case 'piano':
+                return selectedSong.content_piano || '';
+            default: // 'main'
+                return selectedSong.content;
+        }
+    }, [selectedSong, displayVersion]);
+    
+    // Transponer el contenido seleccionado
+    const transposedContent = useMemo(
+        () => selectedSong ? transposeSongContent(selectedContent, transposeOffset) : '', 
+        [selectedSong, selectedContent, transposeOffset]
+    );
 
     if (isLoading) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Cargando...</div>;
     if (!user) return <AuthPage auth={auth} db={db} />;
@@ -712,7 +813,7 @@ export default function App() {
                <input type="text" placeholder="Buscar por título o artista..." className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                <div className="flex-grow overflow-y-auto pr-2">
                    <h2 className="text-xl font-semibold mb-2 flex items-center"><Music className="mr-2" size={20} /> Repertorio</h2>
-                   <ul className="space-y-1">{songs.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || (s.artist && s.artist.toLowerCase().includes(searchTerm.toLowerCase()))).map(song => (<li key={song.id} className={`flex justify-between items-center p-2 rounded cursor-pointer transition-colors ${selectedSong?.id === song.id ? 'bg-cyan-500 text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`} onClick={() => handleSelectSong(song)}><div><p className="font-semibold">{song.title}</p><p className="text-sm text-gray-500 dark:text-gray-400">{song.artist}</p></div>{user.role === 'admin' && <button onClick={(e) => {e.stopPropagation(); handleDeleteSong(song.id)}} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-600 p-1"><Trash2 size={16}/></button>}</li>))}</ul>
+                   <ul className="space-y-1">{songs.filter(s => s.title.toLowerCase().includes(searchTerm.toLowerCase()) || (s.artist && s.artist.toLowerCase().includes(searchTerm.toLowerCase()))).map(song => (<li key={song.id} className={`flex justify-between items-center p-2 rounded cursor-pointer transition-colors ${selectedSong?.id === song.id ? 'bg-cyan-500 text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`} onClick={() => handleSelectSong(song)}><div><p className="font-semibold">{song.title}</p><p className="text-sm text-gray-500 dark:text-gray-400">{song.artist}</p></div>{user.role === 'admin' && <button onClick={(e) => startDeleteSong(song.id, e)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-600 p-1"><Trash2 size={16}/></button>}</li>))}</ul>
                </div>
                <div className="flex-shrink-0">
                    <h2 className="text-xl font-semibold mb-2 flex items-center"><ListMusic className="mr-2" size={20} /> Mis Listas</h2>
@@ -796,7 +897,76 @@ export default function App() {
 
            <main className="w-full md:w-2/3 lg:w-3/4 p-6 overflow-y-auto" ref={mainContentRef}>
                {selectedSong ? (isEditing ? (
-                   <div><h2 className="text-3xl font-bold text-cyan-600 dark:text-cyan-400 mb-4">Editando Canción</h2><div className="space-y-4"><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Título</label><input type="text" value={editedTitle} onChange={e => setEditedTitle(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/></div><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Artista</label><input type="text" value={editedArtist} onChange={e => setEditedArtist(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/></div><div><label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Contenido (ChordPro)</label><textarea value={editedContent} onChange={e => setEditedContent(e.target.value)} rows="15" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono text-sm"></textarea></div><div className="flex space-x-4"><button onClick={handleSaveChanges} className="bg-green-500 hover:bg-green-600 text-white p-2 rounded font-bold flex items-center"><Save className="mr-2" size={18}/> Guardar Cambios</button><button onClick={handleCancelEdit} className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded font-bold flex items-center"><XCircle className="mr-2" size={18}/> Cancelar</button></div></div></div>
+                   <div>
+                       <h2 className="text-3xl font-bold text-cyan-600 dark:text-cyan-400 mb-4">Editando Canción</h2>
+                       <div className="space-y-4">
+                           <div>
+                               <label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Título</label>
+                               <input type="text" value={editedTitle} onChange={e => setEditedTitle(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/>
+                           </div>
+                           <div>
+                               <label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Artista</label>
+                               <input type="text" value={editedArtist} onChange={e => setEditedArtist(e.target.value)} className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/>
+                           </div>
+                           
+                           {/* Tabs para los diferentes tipos de contenido */}
+                           <div className="mb-2">
+                               <div className="flex border-b border-gray-200 dark:border-gray-700">
+                                   <button 
+                                       onClick={() => setActiveContentTab('main')} 
+                                       className={`py-2 px-4 font-medium ${activeContentTab === 'main' ? 'text-cyan-600 dark:text-cyan-400 border-b-2 border-cyan-600 dark:border-cyan-400' : 'text-gray-500 dark:text-gray-400'}`}
+                                   >
+                                       Versión Principal
+                                   </button>
+                                   <button 
+                                       onClick={() => setActiveContentTab('notes')} 
+                                       className={`py-2 px-4 font-medium ${activeContentTab === 'notes' ? 'text-cyan-600 dark:text-cyan-400 border-b-2 border-cyan-600 dark:border-cyan-400' : 'text-gray-500 dark:text-gray-400'}`}
+                                   >
+                                       Versión Notas
+                                   </button>
+                                   <button 
+                                       onClick={() => setActiveContentTab('piano')} 
+                                       className={`py-2 px-4 font-medium ${activeContentTab === 'piano' ? 'text-cyan-600 dark:text-cyan-400 border-b-2 border-cyan-600 dark:border-cyan-400' : 'text-gray-500 dark:text-gray-400'}`}
+                                   >
+                                       Versión Piano
+                                   </button>
+                               </div>
+                               <div className="mt-2">
+                                   {activeContentTab === 'main' && (
+                                       <div>
+                                           <label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">Contenido Principal (ChordPro)</label>
+                                           <textarea value={editedContent} onChange={e => setEditedContent(e.target.value)} rows="15" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono text-sm"></textarea>
+                                       </div>
+                                   )}
+                                   {activeContentTab === 'notes' && (
+                                       <div>
+                                           <label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">
+                                               Versión Notas (ChordPro) - Simplificada con solo acordes/notas
+                                           </label>
+                                           <textarea value={editedContentNotes} onChange={e => setEditedContentNotes(e.target.value)} rows="15" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono text-sm"></textarea>
+                                       </div>
+                                   )}
+                                   {activeContentTab === 'piano' && (
+                                       <div>
+                                           <label className="block text-sm font-bold mb-1 text-gray-600 dark:text-gray-300">
+                                               Versión Piano (ChordPro) - Arreglos específicos para piano
+                                           </label>
+                                           <textarea value={editedContentPiano} onChange={e => setEditedContentPiano(e.target.value)} rows="15" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono text-sm"></textarea>
+                                       </div>
+                                   )}
+                               </div>
+                           </div>
+                           
+                           <div className="flex space-x-4">
+                               <button onClick={handleSaveChanges} className="bg-green-500 hover:bg-green-600 text-white p-2 rounded font-bold flex items-center">
+                                   <Save className="mr-2" size={18}/> Guardar Cambios
+                               </button>
+                               <button onClick={handleCancelEdit} className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded font-bold flex items-center">
+                                   <XCircle className="mr-2" size={18}/> Cancelar
+                               </button>
+                           </div>
+                       </div>
+                   </div>
                ) : (
                    <div>
                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
@@ -807,6 +977,55 @@ export default function App() {
                                    <button onClick={() => changeFontSize(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600" title="Aumentar tamaño (tecla ↑)"><ZoomIn size={18}/></button>
                                </div>
                                <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-900 p-2 rounded-lg"><span className="text-lg font-semibold">Tono:</span><button onClick={() => handleTransposeStep(-1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold" title="Bajar tono (tecla -)">-1</button><input type="text" value={targetKeyInput} onChange={(e) => setTargetKeyInput(e.target.value.toUpperCase())} onBlur={handleApplyTargetKey} className="w-16 p-2 text-center rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-bold text-xl focus:outline-none focus:ring-2 focus:ring-cyan-500"/><button onClick={() => handleTransposeStep(1)} className="p-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 font-bold" title="Subir tono (tecla +)">+1</button></div>
+                               
+                               {/* Selector de versión de la canción */}
+                               {(selectedSong?.content_notes || selectedSong?.content_piano) && (
+                                   <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-900 p-2 rounded-lg">
+                                       <span className="text-lg font-semibold">Versión:</span>
+                                       <div className="flex bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden">
+                                           <button 
+                                               onClick={() => setDisplayVersion('main')}
+                                               className={`px-3 py-1 text-sm font-medium flex items-center gap-1 ${displayVersion === 'main' ? 'bg-cyan-600 text-white' : 'hover:bg-gray-300 dark:hover:bg-gray-600'}`}
+                                               title="Versión principal"
+                                           >
+                                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                   <path d="M9 18V5l12-2v13"></path>
+                                                   <circle cx="6" cy="18" r="3"></circle>
+                                                   <circle cx="18" cy="16" r="3"></circle>
+                                               </svg>
+                                               Principal
+                                           </button>
+                                           {selectedSong?.content_notes && (
+                                               <button 
+                                                   onClick={() => setDisplayVersion('notes')}
+                                                   className={`px-3 py-1 text-sm font-medium flex items-center gap-1 ${displayVersion === 'notes' ? 'bg-cyan-600 text-white' : 'hover:bg-gray-300 dark:hover:bg-gray-600'}`}
+                                                   title="Solo notas y acordes"
+                                               >
+                                                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                       <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                                       <line x1="9" y1="3" x2="9" y2="21"></line>
+                                                   </svg>
+                                                   Notas
+                                               </button>
+                                           )}
+                                           {selectedSong?.content_piano && (
+                                               <button 
+                                                   onClick={() => setDisplayVersion('piano')}
+                                                   className={`px-3 py-1 text-sm font-medium flex items-center gap-1 ${displayVersion === 'piano' ? 'bg-cyan-600 text-white' : 'hover:bg-gray-300 dark:hover:bg-gray-600'}`}
+                                                   title="Arreglo para piano"
+                                               >
+                                                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                       <path d="M16 4H8a6 6 0 0 0 0 12h8a6 6 0 0 0 0-12z"></path>
+                                                       <path d="M8 16v4"></path>
+                                                       <path d="M16 16v4"></path>
+                                                       <path d="M12 4v16"></path>
+                                                   </svg>
+                                                   Piano
+                                               </button>
+                                           )}
+                                       </div>
+                                   </div>
+                               )}
                                
                                {/* Control Auto-Scroll */}
                                <div className={`flex items-center gap-2 p-2 rounded-lg ${isAutoScrolling ? 'bg-cyan-600 text-white' : 'bg-gray-100 dark:bg-gray-900'}`}>
@@ -903,6 +1122,7 @@ export default function App() {
                                <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">+</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">-</kbd> - Cambiar Tono</div>
                                <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↑</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↓</kbd> - Cambiar tamaño</div>
                                <div>Con Auto-scroll: <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↑</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">↓</kbd> - Velocidad</div>
+                               <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">1</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">2</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">3</kbd> - Cambiar versión</div>
                            </div>
                        </div>
 
@@ -913,6 +1133,44 @@ export default function App() {
                    <div className="flex items-center justify-center h-full"><p className="text-2xl text-gray-400 dark:text-gray-500">Selecciona una canción para comenzar</p></div>
                )}
            </main>
+           
+           {/* Modal de confirmación para eliminar canción */}
+           {showDeleteConfirmation && (
+               <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50">
+                   <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full">
+                       <div className="flex items-center text-red-500 mb-4">
+                           <AlertTriangle className="mr-2" size={24}/>
+                           <h3 className="text-xl font-bold">Confirmar eliminación</h3>
+                       </div>
+                       
+                       <p className="text-gray-700 dark:text-gray-300 mb-6">
+                           {pendingDeleteSongId ? (
+                               <>
+                                   ¿Estás seguro que deseas eliminar la canción <span className="font-bold">{songs.find(s => s.id === pendingDeleteSongId)?.title || ''}</span>?
+                                   <br/><br/>
+                                   <span className="text-sm opacity-75">La canción será eliminada del listado pero podrá ser recuperada por un administrador.</span>
+                               </>
+                           ) : 'Error: No se ha seleccionado ninguna canción para eliminar'}
+                       </p>
+                       
+                       <div className="flex justify-end space-x-3">
+                           <button 
+                               onClick={cancelDeleteSong}
+                               className="px-4 py-2 bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 rounded"
+                           >
+                               Cancelar
+                           </button>
+                           <button 
+                               onClick={handleDeleteSong}
+                               className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded font-medium flex items-center"
+                           >
+                               <Trash2 size={16} className="mr-2" />
+                               Eliminar
+                           </button>
+                       </div>
+                   </div>
+               </div>
+           )}
        </div>
        </div>
    );
