@@ -436,8 +436,6 @@ export default function App() {
     const autoScrollRef = React.useRef(null);
     const mainContentRef = React.useRef(null); // Referencia al contenedor principal de la canción
 
-    // Acumulador de scroll como ref para mantenerlo entre renders
-    const accumulatedScrollRef = React.useRef(0);
     // Referencia para el valor actual de scrollSpeed para usarlo en el intervalo
     const scrollSpeedRef = React.useRef(1);
     
