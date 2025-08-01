@@ -432,7 +432,7 @@ export default function App() {
     
     // Auto-scroll state and functions
     const [isAutoScrolling, setIsAutoScrolling] = useState(false);
-    const [scrollSpeed, setScrollSpeed] = useState(1); // pixels per interval
+    const [scrollSpeed, setScrollSpeed] = useState(2); // Velocidad inicial más alta para ser perceptible
     const autoScrollRef = React.useRef(null);
     const mainContentRef = React.useRef(null); // Referencia al contenedor principal de la canción
 
@@ -445,70 +445,167 @@ export default function App() {
     useEffect(() => {
         scrollSpeedRef.current = scrollSpeed;
     }, [scrollSpeed]);
+    
+    // Detectar si estamos en un dispositivo táctil (como iPad)
+    useEffect(() => {
+        const detectTouchDevice = () => {
+            const isTouchDevice = 
+                ('ontouchstart' in window) || 
+                (navigator.maxTouchPoints > 0) || 
+                (navigator.msMaxTouchPoints > 0);
+            
+            // Configurar el modo de scroll apropiado para dispositivos táctiles
+            if (isTouchDevice) {
+                document.documentElement.style.overscrollBehaviorY = 'contain';
+                if (mainContentRef.current) {
+                    mainContentRef.current.style.WebkitOverflowScrolling = 'touch';
+                }
+            }
+        };
+        
+        detectTouchDevice();
+        
+        // Algunos dispositivos pueden cambiar en tiempo de ejecución
+        window.addEventListener('resize', detectTouchDevice);
+        return () => window.removeEventListener('resize', detectTouchDevice);
+    }, []);
 
     const startAutoScroll = useCallback(() => {
+        console.log("Iniciando auto-scroll - IMPLEMENTACIÓN ULTRA SIMPLIFICADA");
+        
         // Primero limpiamos cualquier intervalo anterior
         if (autoScrollRef.current) {
             clearInterval(autoScrollRef.current);
             autoScrollRef.current = null;
         }
         
-        // Iniciamos un nuevo intervalo de auto-scroll
+        // Verificación super básica del contenedor
+        if (!mainContentRef.current) {
+            console.error("ERROR: No existe el contenedor para auto-scroll");
+            alert("Error iniciando auto-scroll: No se encontró el contenedor");
+            return;
+        }
+        
+        // Activamos el estado de auto-scroll
         setIsAutoScrolling(true);
         
-        // Reiniciamos el acumulador
-        accumulatedScrollRef.current = 0;
+        // Mover un poco al inicio para demostrar que funciona
+        console.log("Forzando scroll inicial de prueba");
+        mainContentRef.current.scrollBy(0, 10);
         
-        // Creamos el nuevo intervalo después de un pequeño delay
-        // para evitar conflictos con el estado
-        setTimeout(() => {
-            autoScrollRef.current = setInterval(() => {
-                if (mainContentRef.current) {
-                    // Acumulamos el valor parcial del scroll usando la referencia actualizada
-                    // Esto permite que los cambios en la velocidad tengan efecto inmediatamente
-                    accumulatedScrollRef.current += scrollSpeedRef.current;
-                    
-                    // Cuando acumulamos al menos 0.1px, hacemos el scroll
-                    if (accumulatedScrollRef.current >= 0.1) {
-                        // Redondeamos para asegurar un movimiento mínimo
-                        const pixelsToMove = Math.max(1, Math.floor(accumulatedScrollRef.current));
-                        mainContentRef.current.scrollTop += pixelsToMove;
-                        accumulatedScrollRef.current -= pixelsToMove; // Guardamos el residuo
+        // Verificación extremadamente simple: ¿hay contenido suficiente?
+        const containerHeight = mainContentRef.current.clientHeight;
+        const contentHeight = mainContentRef.current.scrollHeight;
+        
+        console.log("AUTO-SCROLL DEBUG - DIMENSIONES:", { 
+            containerHeight, 
+            contentHeight,
+            diferencia: contentHeight - containerHeight,
+            posicionActual: mainContentRef.current.scrollTop
+        });
+        
+        if (contentHeight <= containerHeight) {
+            console.warn("ADVERTENCIA: No hay contenido suficiente para hacer scroll");
+            alert("No hay suficiente contenido para auto-scroll");
+            setIsAutoScrolling(false);
+            return;
+        }
+        
+        // Definir función simple de desplazamiento que será llamada periódicamente
+        const doScroll = () => {
+            if (!mainContentRef.current) return false;
+            
+            // Obtenemos dimensiones actuales
+            const containerHeight = mainContentRef.current.clientHeight;
+            const contentHeight = mainContentRef.current.scrollHeight;
+            const scrollTop = mainContentRef.current.scrollTop;
+            
+            // Verificamos si hemos llegado al final
+            if (scrollTop + containerHeight >= contentHeight - 20) {
+                console.log("AUTO-SCROLL: Fin del contenido alcanzado");
+                setIsAutoScrolling(false);
+                return false;
+            }
+            
+            // Aplicamos un movimiento fijo según la velocidad
+            const pixelsToMove = Math.max(1, scrollSpeed);
+            
+            try {
+                // Intentamos mover directamente con scrollBy
+                mainContentRef.current.scrollBy({
+                    top: pixelsToMove,
+                    left: 0,
+                    behavior: 'auto'
+                });
+                
+                // Verificación redundante para asegurarnos de que se mueve
+                setTimeout(() => {
+                    if (mainContentRef.current) {
+                        mainContentRef.current.scrollTop += pixelsToMove / 2;
                     }
-                    
-                    // Si llegamos al final, detenemos el auto-scroll
-                    const isAtBottom = 
-                        mainContentRef.current.scrollHeight - mainContentRef.current.scrollTop <=
-                        mainContentRef.current.clientHeight + 5; // 5px de margen
-                        
-                    if (isAtBottom) {
-                        clearInterval(autoScrollRef.current);
-                        autoScrollRef.current = null;
-                        setIsAutoScrolling(false);
-                    }
+                }, 5);
+                
+                // Log para depuración
+                console.log("Auto-scroll aplicado:", pixelsToMove);
+            } catch (e) {
+                console.error("Error en auto-scroll:", e);
+                // Fallback directo a scrollTop
+                try {
+                    mainContentRef.current.scrollTop += pixelsToMove;
+                } catch (err) {
+                    console.error("Error crítico en auto-scroll:", err);
+                    return false;
                 }
-            }, 50);
-        }, 100);
-    }, [setIsAutoScrolling]);
+            }
+            
+            return true;
+        };
+        
+        // Crear el intervalo de auto-scroll con un periodo más largo y simple
+        autoScrollRef.current = setInterval(() => {
+            if (!doScroll()) {
+                console.log("Deteniendo auto-scroll desde intervalo");
+                clearInterval(autoScrollRef.current);
+                autoScrollRef.current = null;
+                setIsAutoScrolling(false);
+            }
+        }, 100); // 100ms = 10 veces por segundo, suficiente y más seguro
+        
+        // Intentar un primer scroll para verificar funcionamiento
+        doScroll();
+        
+    }, [scrollSpeed, setIsAutoScrolling]);
 
     const stopAutoScroll = useCallback(() => {
+        console.log("Deteniendo auto-scroll - SIMPLIFICADO");
+        
+        // Limpiamos el intervalo de scroll
         if (autoScrollRef.current) {
             clearInterval(autoScrollRef.current);
             autoScrollRef.current = null;
         }
+        
+        // Forzamos el estado a false para actualizar la UI
         setIsAutoScrolling(false);
+        
+        // Cancelamos cualquier animación pendiente por si acaso
+        if (window.cancelAnimationFrame) {
+            window.cancelAnimationFrame(window.requestAnimationFrame(() => {}));
+        }
+        
+        console.log("Auto-scroll detenido completamente");
     }, []);
 
     const changeScrollSpeed = useCallback((amount) => {
-        // Ampliamos el rango hacia abajo para permitir velocidades muy lentas
-        // El mínimo es 0.1 para tener un valor visible en la UI, pero aún así
-        // el sistema manejará desplazamientos más pequeños a través de la acumulación
+        // Versión simplificada con valores más amplios para mayor efecto
         setScrollSpeed(prev => {
-            // Calculamos el nuevo valor con precisión
-            const newValue = Math.max(0.1, Math.min(5, prev + amount));
-            // Redondeamos a 2 decimales para la visualización
-            return Math.round(newValue * 100) / 100;
+            // Aumentamos el rango para que sea más notorio
+            const newValue = Math.max(0.5, Math.min(10, prev + amount));
+            // Redondeamos a 1 decimal para mayor simplicidad
+            return Math.round(newValue * 10) / 10;
         });
+        
+        console.log("Velocidad de scroll cambiada");
     }, []);
 
     // Cleanup auto-scroll interval on component unmount
@@ -531,20 +628,57 @@ export default function App() {
         }
         // También asegurémonos de volver al inicio del contenido
         if (mainContentRef.current) {
-            mainContentRef.current.scrollTop = 0;
+            try {
+                // Método moderno de scroll con opciones
+                mainContentRef.current.scrollTo({
+                    top: 0,
+                    behavior: 'auto'
+                });
+            } catch (e) {
+                // Fallback para navegadores antiguos
+                mainContentRef.current.scrollTop = 0;
+            }
         }
     }, [selectedSong]);
+    
+    // Configuración especial para iPad y dispositivos iOS
+    useEffect(() => {
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        
+        if (isIOS && mainContentRef.current) {
+            // Guardamos una referencia al elemento para usarla en la limpieza
+            const contentElement = mainContentRef.current;
+            
+            // Aplicamos configuraciones específicas solo al contenedor de la canción
+            // en lugar de a todo el documento para evitar afectar la navegación general
+            contentElement.style.overscrollBehavior = 'contain';
+            contentElement.style.WebkitOverflowScrolling = 'touch';
+            
+            // Ya no fijamos la posición del body para permitir scrolling normal
+            // en otras partes de la aplicación
+            
+            return () => {
+                // Usamos la variable capturada para la limpieza
+                contentElement.style.overscrollBehavior = '';
+                contentElement.style.WebkitOverflowScrolling = '';
+            };
+        }
+    }, []);
 
     // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
-            // Only handle keyboard shortcuts when a song is selected and we're not editing
-            if (!selectedSong || isEditing) return;
+            // Función para verificar si el elemento es un input o elemento editable
+            const isInputElement = (element) => {
+                return element.tagName === 'INPUT' || 
+                       element.tagName === 'TEXTAREA' || 
+                       element.isContentEditable;
+            };
             
-            // No activar atajos si el foco está en un campo de entrada (input, textarea, etc.)
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
-                return;
-            }
+            // Solo manejar atajos de teclado cuando hay una canción seleccionada,
+            // no estamos editando y el foco NO está en un elemento de entrada
+            if (!selectedSong || isEditing || isInputElement(document.activeElement)) return;
 
             switch (e.key) {
                 case 'b': 
@@ -562,10 +696,16 @@ export default function App() {
                     break;
                 case 's':
                     // Toggle auto-scroll
+                    console.log("Tecla 's' presionada - Estado auto-scroll:", isAutoScrolling);
                     if (isAutoScrolling) {
+                        console.log("Deteniendo auto-scroll desde atajo de teclado");
                         stopAutoScroll();
                     } else {
-                        startAutoScroll();
+                        console.log("Iniciando auto-scroll desde atajo de teclado");
+                        setTimeout(() => {
+                            // Pequeño retardo para asegurar que la UI se ha actualizado
+                            startAutoScroll();
+                        }, 50);
                     }
                     e.preventDefault();
                     break;
@@ -719,11 +859,32 @@ export default function App() {
         main {
             height: 100vh; /* Asegurar que el contenedor principal ocupe toda la altura */
             overflow-y: auto !important;
-            scroll-behavior: smooth;
+            scroll-behavior: auto; /* Cambiado de smooth a auto para mejor compatibilidad */
             position: relative;
             display: flex;
             flex-direction: column;
             padding-bottom: 50px; /* Espacio adicional al final para evitar que se corte */
+            -webkit-overflow-scrolling: touch; /* Para mejor scroll en iOS */
+            overscroll-behavior-y: contain; /* Prevenir scroll refresh en dispositivos táctiles */
+            touch-action: pan-y; /* Permitir scrolling táctil vertical */
+            isolation: isolate; /* Crear un contexto de apilamiento independiente */
+        }
+        
+        /* Contenedor principal de la canción con scroll */
+        .song-content-container {
+            flex: 1;
+            height: auto; /* Altura automática basada en el contenido */
+            min-height: 78vh; /* Aumentamos la altura mínima para dar más espacio a la canción */
+            max-height: 90vh; /* Permitir que ocupe casi toda la pantalla */
+            overflow-y: auto !important; /* Forzar overflow */
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            scroll-behavior: auto; /* Auto en lugar de smooth */
+            padding: 12px 8px; /* Padding aún más reducido */
+            position: relative;
+            border: none; /* Sin borde */
+            margin-bottom: 0.5rem; /* Menos espacio abajo */
         }
         
         /* Evitar que se oculte el scroll del contenedor principal */
@@ -900,7 +1061,7 @@ export default function App() {
                {user.role === 'admin' && <details className="flex-shrink-0"><summary className="cursor-pointer text-lg font-semibold text-cyan-600 dark:text-cyan-400">Añadir Nueva Canción</summary><form onSubmit={handleAddSong} className="space-y-2 mt-2"><input type="text" value={newSongTitle} onChange={e => setNewSongTitle(e.target.value)} placeholder="Título" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/><input type="text" value={newSongArtist} onChange={e => setNewSongArtist(e.target.value)} placeholder="Artista" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600"/><textarea value={newSongContent} onChange={e => setNewSongContent(e.target.value)} placeholder="Contenido en formato ChordPro..." rows="5" className="w-full p-2 rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 font-mono"></textarea><button type="submit" className="w-full bg-green-500 hover:bg-green-600 text-white p-2 rounded font-bold">Guardar Canción</button></form></details>}
            </aside>
 
-           <main className="w-full md:w-2/3 lg:w-3/4 p-6 overflow-y-auto" ref={mainContentRef}>
+           <main className="w-full md:w-2/3 lg:w-3/4 p-6 overflow-y-auto">
                {selectedSong ? (isEditing ? (
                    <div>
                        <h2 className="text-3xl font-bold text-cyan-600 dark:text-cyan-400 mb-4">Editando Canción</h2>
@@ -1094,7 +1255,41 @@ export default function App() {
                                <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="bg-gray-200 dark:bg-gray-700 p-3 rounded-lg"><span className="dark:hidden"><Sun size={18}/></span><span className="hidden dark:inline"><Moon size={18}/></span></button>
                            </div>
                        </div>
-                       <div className={`${fontSizes[fontSizeIndex]} leading-relaxed mb-8 ${bookModeEnabled ? 'book-mode' : 'single-column'}`}>{renderAsWebsiteStyle(transposedContent)}</div>
+                       {/* Contenedor del contenido con auto-scroll - MEJORADO */}
+                       <div 
+                           ref={mainContentRef} 
+                           id="song-content-scroll-container"
+                           className={`${fontSizes[fontSizeIndex]} leading-relaxed mb-8 ${bookModeEnabled ? 'book-mode' : 'single-column'} song-content-container`}
+                           onClick={() => {
+                               // Mostrar dimensiones para depuración
+                               const dims = {
+                                   height: mainContentRef.current?.clientHeight,
+                                   scrollHeight: mainContentRef.current?.scrollHeight,
+                                   scrollTop: mainContentRef.current?.scrollTop,
+                                   tieneScroll: mainContentRef.current?.scrollHeight > mainContentRef.current?.clientHeight
+                               };
+                               console.log("DIMENSIONES DEL CONTENEDOR:", dims);
+                               
+                               // Intentar un scroll manual para probar
+                               if (mainContentRef.current) {
+                                   mainContentRef.current.scrollBy({top: 10, behavior: 'smooth'});
+                                   console.log("Scroll manual ejecutado");
+                               }
+                           }}
+                           style={{
+                               // Usamos estilos que se adaptan mejor al contenido
+                               minHeight: '70vh',
+                               maxHeight: '85vh', 
+                               overflowY: 'scroll',
+                               // Eliminamos el borde para una apariencia más limpia
+                           }}
+                       >
+                           {/* Contenido de la canción */}
+                           {renderAsWebsiteStyle(transposedContent)}
+                           
+                           {/* Espaciador invisible más pequeño para asegurar que haya algo de contenido scrolleable */}
+                           <div style={{ height: '50px', opacity: 0 }}>Espacio extra para scroll</div>
+                       </div>
 
                        {/* Indicador de auto-scroll */}
                        {isAutoScrolling && (
@@ -1119,9 +1314,9 @@ export default function App() {
                            </div>
                        )}
 
-                       <div className="mb-6 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg text-sm">
-                           <h4 className="font-bold mb-2">Atajos de Teclado:</h4>
-                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                       <div className="mb-2 p-2 bg-gray-100 dark:bg-gray-900 rounded-lg text-xs">
+                           <h4 className="font-bold mb-1">Atajos de Teclado:</h4>
+                           <div className="grid grid-cols-3 gap-1">
                                <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">B</kbd> - Modo Libro (2 columnas)</div>
                                <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">S</kbd> - Iniciar/Parar Auto-scroll</div>
                                <div><kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">+</kbd>/<kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded">-</kbd> - Cambiar Tono</div>
